@@ -87,7 +87,7 @@ lark-cli minutes <resource> <method> [flags] # 调用 API
 | 方法 | 所需 scope |
 |------|-----------|
 | `minutes.get` | `minutes:minutes:readonly` |
-| `+download` | `minutes:minutes.media:export`（自动命名还需 `minutes:minutes:readonly`，缺失时降级为 token 命名） |
+| `+download` | `minutes:minutes.media:export` |
 
 
 <!-- AUTO-GENERATED-END -->

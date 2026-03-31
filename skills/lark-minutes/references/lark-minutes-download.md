@@ -28,7 +28,7 @@ lark-cli minutes +download --minute-token obcnq3b9jl72l83w4f149w9c --dry-run
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | `--minute-token <token>` | 是 | 妙记 Token，从妙记 URL 末尾提取（24 位字符串） |
-| `--output <path>` | 否 | 本地保存路径（默认用妙记标题 + 自动推断扩展名，如 `访谈一则.mp4`） |
+| `--output <path>` | 否 | 本地保存路径（默认使用妙记原始标题，如 `Office Oncall流程2.0宣讲.mp4`） |
 | `--overwrite` | 否 | 覆盖已存在的输出文件 |
 | `--url-only` | 否 | 仅返回下载链接，不下载文件 |
 | `--dry-run` | 否 | 预览 API 调用，不执行 |
@@ -103,7 +103,7 @@ API 限流 5 次/秒，批量下载时需注意控制频率。
 ## 提示
 
 - 音视频文件可能较大，下载超时默认为 5 分钟。
-- 默认文件名使用妙记标题，扩展名从下载响应的 Content-Type 自动推断（如 `video/mp4` → `.mp4`）。获取标题需要 `minutes:minutes:readonly` 或 `minutes:minutes.basic:read` scope，获取失败时降级为 `<minute-token>.media`。
+- 未指定 `--output` 时，默认使用妙记原始标题作为文件名（如 `Office Oncall流程2.0宣讲.mp4`）。
 - 如需获取妙记的纪要内容（逐字稿、AI 总结等），请使用 [vc +notes](../../lark-vc/references/lark-vc-notes.md)。
 
 ## 参考
