@@ -207,20 +207,19 @@ func executeBatch(ctx context.Context, runtime *common.RuntimeContext) error {
 		g.SetLimit(maxConcurrentDownloads)
 
 		for _, task := range tasks {
-			task := task
 			g.Go(func() error {
 				logMu.Lock()
 				fmt.Fprintf(errOut, "[minutes +download] downloading: %s\n", common.MaskToken(task.token))
 				logMu.Unlock()
 
-				result, err := downloadMediaFile(gctx, runtime, task.downloadURL, task.token, downloadOpts{
+				result, dlErr := downloadMediaFile(gctx, runtime, task.downloadURL, task.token, downloadOpts{
 					outputDir: outputDir,
 					overwrite: overwrite,
 					usedNames: &usedNames,
 				})
-				if err != nil {
-					results[task.index] = batchResult{MinuteToken: task.token, Error: err.Error()}
-					return nil // partial failure
+				if dlErr != nil {
+					results[task.index] = batchResult{MinuteToken: task.token, Error: dlErr.Error()}
+					return nil // partial failure: record error, don't abort other downloads
 				}
 
 				results[task.index] = batchResult{
