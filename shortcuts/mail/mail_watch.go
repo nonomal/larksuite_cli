@@ -256,8 +256,11 @@ var MailWatch = common.Shortcut{
 		}
 
 		// Resolve "me" to the actual email address so we can filter events.
-		mailboxFilter := mailbox
-		if mailbox == "me" {
+		// Bot tokens have no personal mailbox; "me" means watch all events.
+		mailboxFilter := ""
+		if mailbox != "me" {
+			mailboxFilter = mailbox
+		} else if !runtime.IsBot() {
 			resolved, profileErr := fetchMailboxPrimaryEmail(runtime, "me")
 			if profileErr != nil {
 				unsubscribe() //nolint:errcheck // best-effort cleanup; primary error is profileErr
