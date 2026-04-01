@@ -79,7 +79,7 @@ var MailWatch = common.Shortcut{
 	Command:     "+watch",
 	Description: "Watch for incoming mail events via WebSocket (requires scope mail:event and bot event mail.user_mailbox.event.message_received_v1 added). Run with --print-output-schema to see per-format field reference before parsing output.",
 	Risk:        "read",
-	Scopes:      []string{"mail:event", "mail:user_mailbox.message:readonly", "mail:user_mailbox.folder:read", "mail:user_mailbox.message.address:read", "mail:user_mailbox.message.subject:read", "mail:user_mailbox.message.body:read"},
+	Scopes:      []string{"mail:event", "mail:user_mailbox.message:readonly", "mail:user_mailbox.message.address:read", "mail:user_mailbox.message.subject:read", "mail:user_mailbox.message.body:read"},
 	AuthTypes:   []string{"user", "bot"},
 	Flags: []common.Flag{
 		{Name: "format", Default: "data", Desc: "json: NDJSON stream with ok/data envelope; data: bare NDJSON stream"},
@@ -244,11 +244,14 @@ var MailWatch = common.Shortcut{
 		}
 		info("Mailbox subscribed.")
 
-		// mailboxFilter: only apply event-level filtering when an explicit email address is given
-		// "me" is a server-side alias and cannot be matched against event.mail_address
-		mailboxFilter := ""
-		if mailbox != "me" {
-			mailboxFilter = mailbox
+		// Resolve "me" to the actual email address so we can filter events.
+		mailboxFilter := mailbox
+		if mailbox == "me" {
+			if resolved := fetchMailboxPrimaryEmail(runtime, "me"); resolved != "" {
+				mailboxFilter = resolved
+			} else {
+				mailboxFilter = "" // can't resolve — skip filtering
+			}
 		}
 
 		eventCount := 0
@@ -257,16 +260,18 @@ var MailWatch = common.Shortcut{
 			// Extract event body
 			eventBody := extractMailEventBody(data)
 
-			// Filter by --mailbox (only when an explicit email address was provided)
+			// Filter by --mailbox
 			if mailboxFilter != "" {
 				mailAddr, _ := eventBody["mail_address"].(string)
-				if mailAddr != mailboxFilter {
+				if !strings.EqualFold(mailAddr, mailboxFilter) {
+					fmt.Fprintf(errOut, "[debug] skipping event: mail_address=%q does not match filter=%q\n", mailAddr, mailboxFilter)
 					return
 				}
 			}
 
 			messageID, _ := eventBody["message_id"].(string)
 			if messageID == "" {
+				fmt.Fprintf(errOut, "[debug] skipping event: empty message_id\n")
 				return
 			}
 
@@ -308,11 +313,14 @@ var MailWatch = common.Shortcut{
 			if len(folderIDSet) > 0 {
 				folderID, _ := message["folder_id"].(string)
 				if !folderIDSet[folderID] {
+					fmt.Fprintf(errOut, "[debug] skipping message %s: folder_id=%q not in filter\n", messageID, folderID)
 					return
 				}
 			}
 			if len(labelIDSet) > 0 {
 				if !messageHasLabel(message, labelIDSet) {
+					labels, _ := message["label_ids"].([]interface{})
+					fmt.Fprintf(errOut, "[debug] skipping message %s: label_ids=%v not matching filter\n", messageID, labels)
 					return
 				}
 			}
