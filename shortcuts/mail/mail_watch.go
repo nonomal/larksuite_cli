@@ -734,7 +734,8 @@ func enhanceProfileError(err error) error {
 				"run `lark-cli auth login --scope \"mail:user_mailbox:readonly\"` to grant mailbox profile access")
 		}
 	}
-	return fmt.Errorf("unable to resolve mailbox address for event filtering: %w", err)
+	// Preserve original error (and its exit code) for non-permission failures.
+	return err
 }
 
 // decodeBodyFieldsForFile returns a shallow copy of outputData with body_html and
