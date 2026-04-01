@@ -10,25 +10,32 @@
 ## 命令
 
 ```bash
-# 下载音视频文件到本地
-lark-cli minutes +download --minute-token obcnq3b9jl72l83w4f149w9c --output ./meeting.mp4
+# 下载单个妙记的音视频文件
+lark-cli minutes +download --minute-tokens obcnq3b9jl72l83w4f149w9c
+
+# 指定输出路径
+lark-cli minutes +download --minute-tokens obcnq3b9jl72l83w4f149w9c --output ./meeting.mp4
 
 # 仅获取下载链接（有效期 1 天），不下载文件
-lark-cli minutes +download --minute-token obcnq3b9jl72l83w4f149w9c --url-only
+lark-cli minutes +download --minute-tokens obcnq3b9jl72l83w4f149w9c --url-only
 
-# 覆盖已存在的本地文件
-lark-cli minutes +download --minute-token obcnq3b9jl72l83w4f149w9c --output ./meeting.mp4 --overwrite
+# 批量下载多个妙记
+lark-cli minutes +download --minute-tokens obcnq3b9jl72l83w4f149w9c,obcnexa7814k4t41c446fzwj
+
+# 批量下载到指定目录
+lark-cli minutes +download --minute-tokens obcnq3b9jl72l83w4f149w9c,obcnexa7814k4t41c446fzwj --output-dir ./downloads
 
 # 预览 API 调用
-lark-cli minutes +download --minute-token obcnq3b9jl72l83w4f149w9c --dry-run
+lark-cli minutes +download --minute-tokens obcnq3b9jl72l83w4f149w9c --dry-run
 ```
 
 ## 参数
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
-| `--minute-token <token>` | 是 | 妙记 Token，从妙记 URL 末尾提取（24 位字符串） |
-| `--output <path>` | 否 | 本地保存路径（默认使用妙记原始标题，如 `Office Oncall流程2.0宣讲.mp4`） |
+| `--minute-tokens <tokens>` | 是 | 妙记 Token，逗号分隔支持批量（最多 50 个） |
+| `--output <path>` | 否 | 本地保存路径（单个 token 时有效） |
+| `--output-dir <dir>` | 否 | 批量下载时的输出目录（默认当前目录） |
 | `--overwrite` | 否 | 覆盖已存在的输出文件 |
 | `--url-only` | 否 | 仅返回下载链接，不下载文件 |
 | `--dry-run` | 否 | 预览 API 调用，不执行 |

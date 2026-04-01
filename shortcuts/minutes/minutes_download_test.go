@@ -117,16 +117,17 @@ func chdir(t *testing.T, dir string) {
 // Unit tests: resolveOutputFromResponse
 // ---------------------------------------------------------------------------
 
-func TestResolveOutputFromResponse_ContentDisposition(t *testing.T) {
+func TestResolveOutputFromResponse_FallbackToContentType(t *testing.T) {
+	// With nil runtime, fetchMinuteTitle returns "", so we fall back to token + Content-Type ext.
 	resp := &http.Response{
 		Header: http.Header{
 			"Content-Disposition": []string{`attachment; filename="meeting_recording.mp4"`},
 			"Content-Type":        []string{"video/mp4"},
 		},
 	}
-	got := resolveOutputFromResponse(resp, "tok001")
-	if got != "meeting_recording.mp4" {
-		t.Errorf("expected Content-Disposition filename, got %q", got)
+	got := resolveOutputFromResponse(context.Background(), nil, resp, "tok001")
+	if got != "tok001.mp4" {
+		t.Errorf("expected token + Content-Type ext %q, got %q", "tok001.mp4", got)
 	}
 }
 
@@ -136,7 +137,7 @@ func TestResolveOutputFromResponse_ContentType(t *testing.T) {
 			"Content-Type": []string{"video/mp4"},
 		},
 	}
-	got := resolveOutputFromResponse(resp, "tok001")
+	got := resolveOutputFromResponse(context.Background(), nil, resp, "tok001")
 	if !strings.HasPrefix(got, "tok001") {
 		t.Errorf("expected token prefix, got %q", got)
 	}
@@ -147,7 +148,7 @@ func TestResolveOutputFromResponse_ContentType(t *testing.T) {
 
 func TestResolveOutputFromResponse_Fallback(t *testing.T) {
 	resp := &http.Response{Header: http.Header{}}
-	got := resolveOutputFromResponse(resp, "tok001")
+	got := resolveOutputFromResponse(context.Background(), nil, resp, "tok001")
 	if got != "tok001.media" {
 		t.Errorf("expected fallback %q, got %q", "tok001.media", got)
 	}
@@ -160,7 +161,7 @@ func TestResolveOutputFromResponse_InvalidContentDisposition(t *testing.T) {
 			"Content-Type":        []string{"audio/mpeg"},
 		},
 	}
-	got := resolveOutputFromResponse(resp, "tok001")
+	got := resolveOutputFromResponse(context.Background(), nil, resp, "tok001")
 	if !strings.HasPrefix(got, "tok001") {
 		t.Errorf("expected token prefix from Content-Type fallback, got %q", got)
 	}
@@ -173,7 +174,7 @@ func TestResolveOutputFromResponse_EmptyDispositionFilename(t *testing.T) {
 			"Content-Type":        []string{"video/mp4"},
 		},
 	}
-	got := resolveOutputFromResponse(resp, "tok001")
+	got := resolveOutputFromResponse(context.Background(), nil, resp, "tok001")
 	if got == "" {
 		t.Error("expected non-empty filename")
 	}
@@ -234,13 +235,16 @@ func TestDownload_Validation_NoFlags(t *testing.T) {
 	}
 }
 
-func TestDownload_Validation_BothFlags(t *testing.T) {
+func TestDownload_Validation_InvalidToken(t *testing.T) {
 	f, _, _, _ := cmdutil.TestFactory(t, defaultConfig())
 	err := mountAndRun(t, MinutesDownload, []string{
-		"+download", "--minute-token", "t1", "--minute-tokens", "t2", "--as", "user",
+		"+download", "--minute-tokens", "obcn***invalid", "--as", "user",
 	}, f, nil)
 	if err == nil {
-		t.Fatal("expected validation error for both flags")
+		t.Fatal("expected validation error for invalid token")
+	}
+	if !strings.Contains(err.Error(), "invalid minute token") {
+		t.Errorf("expected 'invalid minute token' error, got: %v", err)
 	}
 }
 
@@ -261,7 +265,7 @@ func TestDownload_Validation_OutputWithBatch(t *testing.T) {
 func TestDownload_DryRun(t *testing.T) {
 	f, stdout, _, _ := cmdutil.TestFactory(t, defaultConfig())
 	err := mountAndRun(t, MinutesDownload, []string{
-		"+download", "--minute-token", "tok001", "--dry-run", "--as", "user",
+		"+download", "--minute-tokens", "tok001", "--dry-run", "--as", "user",
 	}, f, stdout)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -280,7 +284,7 @@ func TestDownload_UrlOnly(t *testing.T) {
 	reg.Register(mediaStub("tok001", "https://example.com/presigned/download"))
 
 	err := mountAndRun(t, MinutesDownload, []string{
-		"+download", "--minute-token", "tok001", "--url-only", "--as", "bot",
+		"+download", "--minute-tokens", "tok001", "--url-only", "--as", "bot",
 	}, f, stdout)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -298,7 +302,7 @@ func TestDownload_FullDownload(t *testing.T) {
 	reg.Register(downloadStub("example.com/presigned/download", []byte("fake-video-content"), "video/mp4"))
 
 	err := mountAndRun(t, MinutesDownload, []string{
-		"+download", "--minute-token", "tok001", "--output", "output.mp4", "--as", "bot",
+		"+download", "--minute-tokens", "tok001", "--output", "output.mp4", "--as", "bot",
 	}, f, stdout)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -322,7 +326,7 @@ func TestDownload_OverwriteProtection(t *testing.T) {
 	reg.Register(downloadStub("example.com/presigned/download", []byte("new-content"), "video/mp4"))
 
 	err := mountAndRun(t, MinutesDownload, []string{
-		"+download", "--minute-token", "tok001", "--output", "existing.mp4", "--as", "bot",
+		"+download", "--minute-tokens", "tok001", "--output", "existing.mp4", "--as", "bot",
 	}, f, nil)
 	if err == nil {
 		t.Fatal("expected error for existing file without --overwrite")
@@ -349,7 +353,7 @@ func TestDownload_HttpError(t *testing.T) {
 	})
 
 	err := mountAndRun(t, MinutesDownload, []string{
-		"+download", "--minute-token", "tok001", "--output", "output.mp4", "--as", "bot",
+		"+download", "--minute-tokens", "tok001", "--output", "output.mp4", "--as", "bot",
 	}, f, nil)
 	if err == nil {
 		t.Fatal("expected error for HTTP 403")
