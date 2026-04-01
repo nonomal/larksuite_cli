@@ -257,6 +257,11 @@ var MailWatch = common.Shortcut{
 		eventCount := 0
 
 		handleEvent := func(data map[string]interface{}) {
+			// Debug: print raw event
+			if raw, err := json.Marshal(data); err == nil {
+				fmt.Fprintf(errOut, "[debug] raw event: %s\n", raw)
+			}
+
 			// Extract event body
 			eventBody := extractMailEventBody(data)
 
@@ -264,14 +269,12 @@ var MailWatch = common.Shortcut{
 			if mailboxFilter != "" {
 				mailAddr, _ := eventBody["mail_address"].(string)
 				if !strings.EqualFold(mailAddr, mailboxFilter) {
-					fmt.Fprintf(errOut, "[debug] skipping event: mail_address=%q does not match filter=%q\n", mailAddr, mailboxFilter)
 					return
 				}
 			}
 
 			messageID, _ := eventBody["message_id"].(string)
 			if messageID == "" {
-				fmt.Fprintf(errOut, "[debug] skipping event: empty message_id\n")
 				return
 			}
 
