@@ -25,6 +25,75 @@ func TestValidateDriveImportSpecRejectsMismatchedType(t *testing.T) {
 	}
 }
 
+func TestValidateDriveImportSpecRejectsXlsBitable(t *testing.T) {
+	t.Parallel()
+
+	err := validateDriveImportSpec(driveImportSpec{
+		FilePath: "./data.xls",
+		DocType:  "bitable",
+	})
+	if err == nil || !strings.Contains(err.Error(), ".xls files can only be imported as 'sheet'") {
+		t.Fatalf("expected xls-only-sheet validation error, got %v", err)
+	}
+}
+
+func TestValidateDriveImportFileSize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		filePath string
+		docType  string
+		fileSize int64
+		wantText string
+	}{
+		{
+			name:     "docx exceeds 600mb limit",
+			filePath: "./report.docx",
+			docType:  "docx",
+			fileSize: driveImport600MBFileSizeLimit + 1,
+			wantText: "exceeds 600.0 MB import limit for .docx",
+		},
+		{
+			name:     "csv sheet exceeds 20mb limit",
+			filePath: "./data.csv",
+			docType:  "sheet",
+			fileSize: driveImport20MBFileSizeLimit + 1,
+			wantText: "exceeds 20.0 MB import limit for .csv when importing as sheet",
+		},
+		{
+			name:     "csv bitable exceeds 100mb limit",
+			filePath: "./data.csv",
+			docType:  "bitable",
+			fileSize: driveImport100MBFileSizeLimit + 1,
+			wantText: "exceeds 100.0 MB import limit for .csv when importing as bitable",
+		},
+		{
+			name:     "xlsx within 800mb limit",
+			filePath: "./data.xlsx",
+			docType:  "sheet",
+			fileSize: driveImport800MBFileSizeLimit,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateDriveImportFileSize(tt.filePath, tt.docType, tt.fileSize)
+			if tt.wantText == "" {
+				if err != nil {
+					t.Fatalf("expected no error, got %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantText) {
+				t.Fatalf("error = %v, want substring %q", err, tt.wantText)
+			}
+		})
+	}
+}
+
 func TestParseDriveImportStatus(t *testing.T) {
 	t.Parallel()
 
@@ -67,7 +136,6 @@ func TestDriveImportStatusPendingWithoutToken(t *testing.T) {
 
 func TestDriveImportTimeoutReturnsFollowUpCommand(t *testing.T) {
 	f, stdout, _, reg := cmdutil.TestFactory(t, driveTestConfig())
-	registerDriveBotTokenStub(reg)
 	reg.Register(&httpmock.Stub{
 		Method: "POST",
 		URL:    "/open-apis/drive/v1/medias/upload_all",
@@ -127,5 +195,44 @@ func TestDriveImportTimeoutReturnsFollowUpCommand(t *testing.T) {
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"next_command": "lark-cli drive +task_result --scenario import --ticket tk_import"`)) {
 		t.Fatalf("stdout missing follow-up command: %s", stdout.String())
+	}
+	if bytes.Contains(stdout.Bytes(), []byte(`"permission_grant"`)) {
+		t.Fatalf("stdout should not include permission_grant before import is ready: %s", stdout.String())
+	}
+}
+
+func TestDriveImportRejectsOversizedFileByImportLimit(t *testing.T) {
+	f, _, _, _ := cmdutil.TestFactory(t, driveTestConfig())
+
+	tmpDir := t.TempDir()
+	withDriveWorkingDir(t, tmpDir)
+	writeSizedDriveImportFile(t, "too-large.csv", driveImport100MBFileSizeLimit+1)
+
+	err := mountAndRunDrive(t, DriveImport, []string{
+		"+import",
+		"--file", "too-large.csv",
+		"--type", "bitable",
+		"--as", "bot",
+	}, f, nil)
+	if err == nil {
+		t.Fatal("expected size limit error, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds 100.0 MB import limit for .csv when importing as bitable") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func writeSizedDriveImportFile(t *testing.T, name string, size int64) {
+	t.Helper()
+
+	fh, err := os.Create(name)
+	if err != nil {
+		t.Fatalf("Create(%q) error: %v", name, err)
+	}
+	if err := fh.Truncate(size); err != nil {
+		t.Fatalf("Truncate(%q) error: %v", name, err)
+	}
+	if err := fh.Close(); err != nil {
+		t.Fatalf("Close(%q) error: %v", name, err)
 	}
 }

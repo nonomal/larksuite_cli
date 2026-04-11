@@ -15,6 +15,7 @@ import (
 	"github.com/larksuite/cli/internal/cmdutil"
 	"github.com/larksuite/cli/internal/httpmock"
 	"github.com/larksuite/cli/internal/output"
+	"github.com/larksuite/cli/internal/vfs/localfileio"
 )
 
 func TestValidateDriveExportSpec(t *testing.T) {
@@ -65,7 +66,6 @@ func TestValidateDriveExportSpec(t *testing.T) {
 
 func TestDriveExportMarkdownWritesFile(t *testing.T) {
 	f, stdout, _, reg := cmdutil.TestFactory(t, driveTestConfig())
-	registerDriveBotTokenStub(reg)
 	reg.Register(&httpmock.Stub{
 		Method: "GET",
 		URL:    "/open-apis/docs/v1/content",
@@ -117,7 +117,6 @@ func TestDriveExportMarkdownWritesFile(t *testing.T) {
 
 func TestDriveExportAsyncSuccess(t *testing.T) {
 	f, stdout, _, reg := cmdutil.TestFactory(t, driveTestConfig())
-	registerDriveBotTokenStub(reg)
 	reg.Register(&httpmock.Stub{
 		Method: "POST",
 		URL:    "/open-apis/drive/v1/export_tasks",
@@ -188,7 +187,6 @@ func TestDriveExportAsyncSuccess(t *testing.T) {
 
 func TestDriveExportReadyDownloadFailureIncludesRecoveryHint(t *testing.T) {
 	f, _, _, reg := cmdutil.TestFactory(t, driveTestConfig())
-	registerDriveBotTokenStub(reg)
 	reg.Register(&httpmock.Stub{
 		Method: "POST",
 		URL:    "/open-apis/drive/v1/export_tasks",
@@ -267,7 +265,6 @@ func TestDriveExportReadyDownloadFailureIncludesRecoveryHint(t *testing.T) {
 
 func TestDriveExportTimeoutReturnsFollowUpCommand(t *testing.T) {
 	f, stdout, _, reg := cmdutil.TestFactory(t, driveTestConfig())
-	registerDriveBotTokenStub(reg)
 	reg.Register(&httpmock.Stub{
 		Method: "POST",
 		URL:    "/open-apis/drive/v1/export_tasks",
@@ -333,7 +330,6 @@ func TestDriveExportTimeoutReturnsFollowUpCommand(t *testing.T) {
 
 func TestDriveExportPollErrorsReturnLastErrorWithRecoveryHint(t *testing.T) {
 	f, stdout, _, reg := cmdutil.TestFactory(t, driveTestConfig())
-	registerDriveBotTokenStub(reg)
 	reg.Register(&httpmock.Stub{
 		Method: "POST",
 		URL:    "/open-apis/drive/v1/export_tasks",
@@ -389,7 +385,6 @@ func TestDriveExportPollErrorsReturnLastErrorWithRecoveryHint(t *testing.T) {
 
 func TestDriveExportDownloadUsesProvidedFileName(t *testing.T) {
 	f, stdout, _, reg := cmdutil.TestFactory(t, driveTestConfig())
-	registerDriveBotTokenStub(reg)
 	reg.Register(&httpmock.Stub{
 		Method:  "GET",
 		URL:     "/open-apis/drive/v1/export_tasks/file/box_789/download",
@@ -424,7 +419,6 @@ func TestDriveExportDownloadUsesProvidedFileName(t *testing.T) {
 
 func TestDriveExportDownloadRejectsOverwriteWithoutFlag(t *testing.T) {
 	f, _, _, reg := cmdutil.TestFactory(t, driveTestConfig())
-	registerDriveBotTokenStub(reg)
 	reg.Register(&httpmock.Stub{
 		Method:  "GET",
 		URL:     "/open-apis/drive/v1/export_tasks/file/box_dup/download",
@@ -472,7 +466,8 @@ func TestSaveContentToOutputDirRejectsOverwriteWithoutFlag(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
 
-	_, err = saveContentToOutputDir(".", "exists.txt", []byte("new"), false)
+	fio := &localfileio.LocalFileIO{}
+	_, err = saveContentToOutputDir(fio, ".", "exists.txt", []byte("new"), false)
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("expected overwrite error, got %v", err)
 	}
@@ -480,7 +475,6 @@ func TestSaveContentToOutputDirRejectsOverwriteWithoutFlag(t *testing.T) {
 
 func TestDriveTaskResultExportIncludesReadyFlags(t *testing.T) {
 	f, stdout, _, reg := cmdutil.TestFactory(t, driveTestConfig())
-	registerDriveBotTokenStub(reg)
 	reg.Register(&httpmock.Stub{
 		Method: "GET",
 		URL:    "/open-apis/drive/v1/export_tasks/tk_export",

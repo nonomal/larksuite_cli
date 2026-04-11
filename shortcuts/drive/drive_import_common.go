@@ -4,6 +4,8 @@
 package drive
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -19,6 +21,14 @@ var (
 	driveImportPollInterval = 2 * time.Second
 )
 
+const (
+	// These limits follow the current product-side import constraints per format.
+	driveImport20MBFileSizeLimit  int64 = 20 * 1024 * 1024
+	driveImport100MBFileSizeLimit int64 = 100 * 1024 * 1024
+	driveImport600MBFileSizeLimit int64 = 600 * 1024 * 1024
+	driveImport800MBFileSizeLimit int64 = 800 * 1024 * 1024
+)
+
 // driveImportExtToDocTypes defines which source file extensions can be imported
 // into which Drive-native document types.
 var driveImportExtToDocTypes = map[string][]string{
@@ -30,7 +40,7 @@ var driveImportExtToDocTypes = map[string][]string{
 	"markdown": {"docx"},
 	"html":     {"docx"},
 	"xlsx":     {"sheet", "bitable"},
-	"xls":      {"sheet", "bitable"},
+	"xls":      {"sheet"},
 	"csv":      {"sheet", "bitable"},
 }
 
@@ -70,6 +80,108 @@ func (s driveImportSpec) CreateTaskBody(fileToken string) map[string]interface{}
 	}
 }
 
+// uploadMediaForImport uploads the source file to the temporary import media
+// endpoint and returns the file token consumed by import_tasks.
+func uploadMediaForImport(ctx context.Context, runtime *common.RuntimeContext, filePath, fileName, docType string) (string, error) {
+	importInfo, err := runtime.FileIO().Stat(filePath)
+	if err != nil {
+		return "", common.WrapInputStatError(err)
+	}
+
+	fileSize := importInfo.Size()
+	if err = validateDriveImportFileSize(filePath, docType, fileSize); err != nil {
+		return "", err
+	}
+
+	extra, err := buildImportMediaExtra(filePath, docType)
+	if err != nil {
+		return "", err
+	}
+
+	if fileSize <= common.MaxDriveMediaUploadSinglePartSize {
+		fmt.Fprintf(runtime.IO().ErrOut, "Uploading media for import: %s (%s)\n", fileName, common.FormatSize(fileSize))
+		// upload_all for import works without parent_node; omitting it preserves
+		// the existing root-level import staging behavior.
+		return common.UploadDriveMediaAll(runtime, common.DriveMediaUploadAllConfig{
+			FilePath:   filePath,
+			FileName:   fileName,
+			FileSize:   fileSize,
+			ParentType: "ccm_import_open",
+			Extra:      extra,
+		})
+	}
+
+	fmt.Fprintf(runtime.IO().ErrOut, "Uploading media for import via multipart upload: %s (%s)\n", fileName, common.FormatSize(fileSize))
+	// upload_prepare is stricter than upload_all here and expects parent_node to
+	// be sent explicitly, even when import uses the implicit root staging area.
+	return common.UploadDriveMediaMultipart(runtime, common.DriveMediaMultipartUploadConfig{
+		FilePath:   filePath,
+		FileName:   fileName,
+		FileSize:   fileSize,
+		ParentType: "ccm_import_open",
+		ParentNode: "",
+		Extra:      extra,
+	})
+}
+
+func buildImportMediaExtra(filePath, docType string) (string, error) {
+	// The import media endpoint uses extra to decide both the target native type
+	// and how to interpret the uploaded source file.
+	extraBytes, err := json.Marshal(map[string]string{
+		"obj_type":       docType,
+		"file_extension": strings.TrimPrefix(strings.ToLower(filepath.Ext(filePath)), "."),
+	})
+	if err != nil {
+		return "", output.Errorf(output.ExitInternal, "json_error", "build upload extra failed: %v", err)
+	}
+	return string(extraBytes), nil
+}
+
+func driveImportFileSizeLimit(filePath, docType string) (int64, bool) {
+	// Keep the limit mapping local to import flows so we do not widen behavior
+	// changes beyond drive +import.
+	switch strings.TrimPrefix(strings.ToLower(filepath.Ext(filePath)), ".") {
+	case "docx", "doc":
+		return driveImport600MBFileSizeLimit, true
+	case "txt", "md", "mark", "markdown", "html", "xls":
+		return driveImport20MBFileSizeLimit, true
+	case "xlsx":
+		return driveImport800MBFileSizeLimit, true
+	case "csv":
+		if docType == "bitable" {
+			return driveImport100MBFileSizeLimit, true
+		}
+		return driveImport20MBFileSizeLimit, true
+	default:
+		return 0, false
+	}
+}
+
+func validateDriveImportFileSize(filePath, docType string, fileSize int64) error {
+	limit, ok := driveImportFileSizeLimit(filePath, docType)
+	if !ok || fileSize <= limit {
+		return nil
+	}
+
+	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(filePath)), ".")
+	if ext == "csv" {
+		// CSV is the only source format whose limit depends on the target type.
+		return output.ErrValidation(
+			"file %s exceeds %s import limit for .csv when importing as %s",
+			common.FormatSize(fileSize),
+			common.FormatSize(limit),
+			docType,
+		)
+	}
+
+	return output.ErrValidation(
+		"file %s exceeds %s import limit for .%s",
+		common.FormatSize(fileSize),
+		common.FormatSize(limit),
+		ext,
+	)
+}
+
 // validateDriveImportSpec enforces the CLI-level compatibility rules before any
 // upload or import request is sent to the backend.
 func validateDriveImportSpec(spec driveImportSpec) error {
@@ -101,8 +213,10 @@ func validateDriveImportSpec(spec driveImportSpec) error {
 	if !typeAllowed {
 		var hint string
 		switch ext {
-		case "xlsx", "xls", "csv":
+		case "xlsx", "csv":
 			hint = fmt.Sprintf(".%s files can only be imported as 'sheet' or 'bitable', not '%s'", ext, spec.DocType)
+		case "xls":
+			hint = fmt.Sprintf(".xls files can only be imported as 'sheet', not '%s'", spec.DocType)
 		default:
 			hint = fmt.Sprintf(".%s files can only be imported as 'docx', not '%s'", ext, spec.DocType)
 		}
